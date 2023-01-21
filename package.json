@@ -1,0 +1,15 @@
+{
+  "name": "link",
+  "version": "0.0.0",
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20221111.1",
+    "typescript": "^4.9.4",
+    "wrangler": "2.7.1"
+  },
+  "private": true,
+  "scripts": {
+    "start": "wrangler dev",
+    "publish": "wrangler publish",
+    "build": "npx wrangler publish --dry-run --outdir=dist"
+  }
+}

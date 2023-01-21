@@ -1,0 +1,20 @@
+name = "link"
+main = "src/index.ts"
+compatibility_date = "2023-01-21"
+workers_dev = false
+
+kv_namespaces = [
+    { binding = "LINKS", id = "a8bd7c66bf054cb683a7c763032cf25e", preview_id = "e3d59a0639ab4d8f93b4b0b63b6aebbe"}
+]
+
+[durable_objects]
+bindings = [{name = "LINK_STORE", class_name = "LinkStore"}]
+
+[[unsafe.bindings]]
+type = "analytics_engine"
+name = "LINK_DATA"
+dataset = "LINK_DATA"
+
+[[migrations]]
+tag = "v1" # Should be unique for each entry
+new_classes = ["LinkStore"]
