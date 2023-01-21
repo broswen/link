@@ -1,8 +1,4 @@
-import {Env} from "./index";
-
-export type CreateLinkRequest = Omit<Link, "id" | "key">
-
-export type ModifyLinkRequest = Omit<Link, "id">
+import {DEFAULT_EXPIRATION, Env} from "./index";
 
 export type Link = {
     id: string
@@ -22,23 +18,26 @@ export class LinkStore implements DurableObject {
 
     async fetch(request: Request): Promise<Response> {
         const url = new URL(request.url)
+        const location = url.searchParams.get('location') ?? ''
+        let expiration = parseInt(url.searchParams.get('expiration') ?? `${DEFAULT_EXPIRATION}`)
+        if (isNaN(expiration)) {
+            expiration = DEFAULT_EXPIRATION
+        }
 
         if (request.method === "POST") {
             // parse link request, create unique id, create unique security key
-            // TODO validate the request data
-            const data = await request.json() as CreateLinkRequest
             const id = crypto.randomUUID().substring(0, 8)
             const key = crypto.randomUUID()
             const link: Link = {
                 id,
                 key,
-                location: data.location,
-                expiration: Date.now() + data.expiration
+                location: location,
+                expiration: Date.now() + expiration
             }
             // TODO prevent id collision, if expired then overwrite
             // save link into DO and KV
             await this.state.storage?.put<Link>(id, link)
-            await this.env.LINKS.put(id, link.location, {expirationTtl: data.expiration})
+            await this.env.LINKS.put(id, link.location, {expirationTtl: expiration})
             this.env.LINK_DATA.writeDataPoint({
                 indexes: [id],
                 blobs: [request.method, request.headers.get('cf-connecting-ip') ?? '']
@@ -49,10 +48,6 @@ export class LinkStore implements DurableObject {
         const id = url.pathname.slice(1)
         const link = await this.state.storage?.get<Link>(id)
         if (!link) {
-            console.log({
-                link,
-                id
-            })
             // if link doesn't exist for id
             if (request.method === 'DELETE') {
                 // return ok if DELETE (idempotent)
@@ -77,21 +72,6 @@ export class LinkStore implements DurableObject {
                 blobs: [request.method, request.headers.get('cf-connecting-ip') ?? '']
             })
             return new Response(JSON.stringify({id}))
-        }
-
-        const data = await request.json() as ModifyLinkRequest
-        if (request.method === 'PUT') {
-            // update link details from request
-            // TODO validate the request data
-            link.location = data.location
-            link.expiration = Date.now() + data.expiration
-            await this.state.storage?.put<Link>(id, link)
-            await this.env.LINKS.put(id, link.location, {expirationTtl: data.expiration})
-            this.env.LINK_DATA.writeDataPoint({
-                indexes: [id],
-                blobs: [request.method, request.headers.get('cf-connecting-ip') ?? '']
-            })
-            return new Response(JSON.stringify(link))
         }
 
         return new Response('not allowed', {status: 405})

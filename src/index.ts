@@ -9,9 +9,29 @@
  */
 export {LinkStore} from './link'
 
+let encoder: TextEncoder | null = null
+
+export async function hash(value: string): Promise<number> {
+	if(encoder === null) {
+		encoder = new TextEncoder()
+	}
+	const data = encoder.encode(value)
+	const buf = await crypto.subtle.digest('SHA-1', data)
+	const dv = new DataView(buf)
+	return dv.getUint32(0)
+}
+
+
 export interface WorkerAnalyticsNamespace {
 	writeDataPoint(data: DataPoint): void
 }
+
+// how many DurableObjects to spread links between
+// each object can handle 100~RPS
+const LINK_STORE_SHARD_COUNT = 3
+
+// 1 day default expiration
+export const DEFAULT_EXPIRATION = 60 * 60 * 24
 
 export interface DataPoint {
 	blobs?: string[]
@@ -31,9 +51,9 @@ export default {
 		env: Env,
 		ctx: ExecutionContext
 	): Promise<Response> {
+		const url = new URL(request.url)
 
 		if (request.method === 'GET') {
-			const url = new URL(request.url)
 			const id = url.pathname.slice(1)
 			if (id === '') {
 				return new Response('not found', {status: 404})
@@ -52,9 +72,31 @@ export default {
 			return new Response('found', {status: 301, headers: { 'Location': location }})
 		}
 
-		if (['POST', 'DELETE', 'PUT'].includes(request.method)) {
-			// direct request to DurableObject to handle modifications
-			const objId = env.LINK_STORE.idFromName('LINK_STORE')
+		if (request.method === 'POST') {
+			const location = url.searchParams.get('location')
+
+			if (!location) {
+				return new Response('invalid location', {status: 400})
+			}
+			const h = await hash(location)
+			const index = h % LINK_STORE_SHARD_COUNT
+			const objId = env.LINK_STORE.idFromName(`${index}`)
+			const obj = env.LINK_STORE.get(objId)
+			return obj.fetch(request)
+		}
+
+		if (request.method === 'DELETE') {
+			const id = url.pathname.slice(1)
+			if (id === '') {
+				return new Response('not found', {status: 404})
+			}
+			const location = await env.LINKS.get(id)
+			if (!location) {
+				return new Response('not found', {status: 404})
+			}
+			const h = await hash(location)
+			const index = h % LINK_STORE_SHARD_COUNT
+			const objId = env.LINK_STORE.idFromName(`${index}`)
 			const obj = env.LINK_STORE.get(objId)
 			return obj.fetch(request)
 		}
